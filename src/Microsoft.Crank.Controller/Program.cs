@@ -38,6 +38,10 @@ namespace Microsoft.Crank.Controller
         private static string _sqlConnectionString = "";
         private static string _indexName = "benchmarks";
         private static string _elasticSearchUrl = "";
+        private static string _influxDbUrl = "";
+        private static string _influxDbBucket = "";
+        private static string _influxDbOrgId = "";
+        private static string _influxDbApiToken = "";
         private const string DefaultBenchmarkDotNetArguments = "--inProcess --cli \"{{benchmarks-cli}}\" --join --exporters briefjson markdown";
 
         // Default to arguments which should be sufficient for collecting trace of default Plaintext run
@@ -79,7 +83,11 @@ namespace Microsoft.Crank.Controller
             _excludeOption,
             _excludeOrderOption,
             _debugOption,
-            _commandLinePropertyOption
+            _commandLinePropertyOption,
+            _influxDbUrlOption,
+            _influxDbApiTokenOption,
+            _influxDbBucketOption,
+            _influxDbOrgIdOption
             ;
 
         // The dynamic arguments that will alter the configurations
@@ -185,6 +193,10 @@ namespace Microsoft.Crank.Controller
             _excludeOrderOption = app.Option("-xo|--exclude-order", "The result to use to detect the high and low results, e.g., 'load:http/rps/mean'", CommandOptionType.SingleValue);
             _debugOption = app.Option("-d|--debug", "Saves the final configuration to a file and skips the execution of the benchmark, e.g., '-d debug.json'", CommandOptionType.SingleValue);
             _commandLinePropertyOption = app.Option("--command-line-property", "Saves the final crank command line in a custom 'command-line' property, excludinf all unnecessary and security sensitive arguments.", CommandOptionType.NoValue);
+            _influxDbUrlOption = app.Option("--influxdb-url", "InfluxDb server url to store results in.", CommandOptionType.SingleValue);
+            _influxDbApiTokenOption = app.Option("--influxdb-apitoken", "ApiToken of InfluxDb to store results in.", CommandOptionType.SingleValue);
+            _influxDbBucketOption = app.Option("--influxdb-bucket", "Bucket of InfluxDb to store results in.", CommandOptionType.SingleValue);
+            _influxDbOrgIdOption = app.Option("--influxdb-orgid", "OrgId of InfluxDb to store results in.", CommandOptionType.SingleValue);
 
             _ignoredCommands = new HashSet<CommandOption>()
             {
@@ -208,6 +220,10 @@ namespace Microsoft.Crank.Controller
                 _quietOption,
                 _debugOption,
                 _commandLinePropertyOption,
+                _influxDbUrlOption,
+                _influxDbApiTokenOption,
+                _influxDbOrgIdOption,
+                _influxDbBucketOption
             };
 
             app.Command("compare", compareCmd =>
@@ -447,6 +463,46 @@ namespace Microsoft.Crank.Controller
                     }
                 }
 
+                if (_influxDbUrlOption.HasValue())
+                { 
+                    _influxDbUrl = _influxDbUrlOption.Value();
+
+                    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_influxDbUrl)))
+                    {
+                        _influxDbUrl = Environment.GetEnvironmentVariable(_influxDbUrl);
+                    }
+                }
+
+                if (_influxDbApiTokenOption.HasValue())
+                {
+                    _influxDbApiToken = _influxDbApiTokenOption.Value();
+
+                    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_influxDbApiToken)))
+                    {
+                        _influxDbApiToken = Environment.GetEnvironmentVariable(_influxDbApiToken);
+                    }
+                }
+
+                if (_influxDbBucketOption.HasValue())
+                {
+                    _influxDbBucket = _influxDbBucketOption.Value();
+
+                    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_influxDbBucket)))
+                    {
+                        _influxDbBucket = Environment.GetEnvironmentVariable(_influxDbBucket);
+                    }
+                }
+
+                if (_influxDbOrgIdOption.HasValue())
+                {
+                    _influxDbOrgId = _influxDbOrgIdOption.Value();
+
+                    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_influxDbOrgId)))
+                    {
+                        _influxDbOrgId = Environment.GetEnvironmentVariable(_influxDbOrgId);
+                    }
+                }
+
                 if (!_configOption.HasValue())
                 {
                     if (!_jobOption.HasValue())
@@ -605,6 +661,12 @@ namespace Microsoft.Crank.Controller
                 if (!String.IsNullOrWhiteSpace(_elasticSearchUrl))
                 {
                     await JobSerializer.InitializeElasticSearchAsync(_elasticSearchUrl, _indexName);
+                }
+
+                // Initialize influxdb
+                if (!String.IsNullOrWhiteSpace(_influxDbUrl))
+                {
+                    await JobSerializer.InitializeInfluxDbAsync(_influxDbUrl, _influxDbApiToken, _influxDbOrgId, _influxDbBucket);
                 }
 
 #pragma warning disable CS4014
@@ -1242,6 +1304,15 @@ namespace Microsoft.Crank.Controller
                     if (i == iterations)
                     {
                         await JobSerializer.WriteJobResultsToEsAsync(executionResult.JobResults, _elasticSearchUrl, _indexName, session, _scenarioOption.Value(), _descriptionOption.Value());
+                    }
+                }
+
+                if (!String.IsNullOrEmpty(_influxDbUrl))
+                {
+                    // Skip storing results if running with iterations and not the last run
+                    if (i == iterations)
+                    {
+                        await JobSerializer.WriteJobResultsToInfluxDbAsync(executionResult.JobResults, _influxDbUrl, _influxDbApiToken, _influxDbOrgId, _influxDbBucket, session, _scenarioOption.Value(), _descriptionOption.Value());
                     }
                 }
 
