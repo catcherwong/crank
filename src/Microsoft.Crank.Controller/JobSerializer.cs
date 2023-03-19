@@ -348,7 +348,7 @@ namespace Microsoft.Crank.Controller.Serializers
                 if (resp.StatusCode == HttpStatusCode.NotFound)
                 {
                     Log("Not Found influxdb bucket, should create");
-                    await CreateBucket(influxDbBucket, influxDbApiToken, influxDbOrgId, influxDbBucket);
+                    await CreateBucket(influxDbUrl, influxDbApiToken, influxDbOrgId, influxDbBucket);
                 }
             }
            
