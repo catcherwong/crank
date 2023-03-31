@@ -11,6 +11,7 @@ using Newtonsoft.Json.Serialization;
 using System.Net.Http;
 using System.Text;
 using System.Net;
+using System.Linq;
 
 namespace Microsoft.Crank.Controller.Serializers
 {
@@ -248,6 +249,125 @@ namespace Microsoft.Crank.Controller.Serializers
         {
             var time = DateTime.Now.ToString("hh:mm:ss.fff");
             Console.WriteLine($"[{time}] {message}");
+        }
+
+        public static async Task WriteJobResultsToInfluxDbAsync(JobResults jobResults, string influxDbUrl, string influxDbApiToken, string influxDbOrgId, string influxDbBucket, string session, string scenario, string description)
+        {
+            var data = GenLineProtocolData(jobResults, session, scenario);
+
+            await RetryOnExceptionAsync(5, () => WriteResultsToInfluxDb(influxDbUrl, influxDbApiToken, influxDbOrgId, influxDbBucket, data), 5000);
+
+            static async Task WriteResultsToInfluxDb(string influxDbUrl, string influxDbApiToken, string influxDbOrgId, string influxDbBucket, string data)
+            {
+                var reqUrl = $"{influxDbUrl}/api/v2/write?orgID={influxDbOrgId}&bucket={influxDbBucket}";
+                using HttpClient client = new();
+                StringContent content = new(data);
+                HttpRequestMessage reqMsg = new(HttpMethod.Post, reqUrl);
+                reqMsg.Content = content;
+                reqMsg.Headers.TryAddWithoutValidation("Authorization", $"Token {influxDbApiToken}");
+                var resp = await client.SendAsync(reqMsg);
+                resp.EnsureSuccessStatusCode();
+            }
+
+            static string GenLineProtocolData(JobResults results, string session, string scenario)
+            {
+                // the value of these measurements can be ignore
+                string[] ignoreMeasurements = new string[] { "bombardier/raw", "netSdkVersion", "AspNetCoreVersion", "NetCoreAppVersion" };
+                var data = new StringBuilder();
+
+                foreach (var job in results.Jobs)
+                {
+                    var key = job.Key;
+                    object netSdkVer = "";
+                    job.Value.Results.TryGetValue("netSdkVersion", out netSdkVer);
+                    object aspNetCoreVer = "";
+                    job.Value.Results.TryGetValue("AspNetCoreVersion", out aspNetCoreVer);
+                    object netCoreAppVer = "";
+                    job.Value.Results.TryGetValue("NetCoreAppVersion", out netCoreAppVer);
+                    object hw = "";
+                    job.Value.Environment.TryGetValue("hw", out hw);
+                    object env = "";
+                    job.Value.Environment.TryGetValue("env", out env);
+                    object os = "";
+                    job.Value.Environment.TryGetValue("os", out os);
+                    object arch = "";
+                    job.Value.Environment.TryGetValue("arch", out arch);
+                    object proc = "";
+                    job.Value.Environment.TryGetValue("proc", out proc);
+
+                    foreach (var measurements in job.Value.Measurements)
+                    {
+                        foreach (var measurement in measurements)
+                        {
+                            if (!ignoreMeasurements.Contains(measurement.Name))
+                            {
+                                // Measurement
+                                data.Append($"{key}.{measurement.Name},");
+
+                                // Tag set, session and scenario
+                                data.Append($"session={session},scenario={scenario},");
+
+                                // Tag set, sdk info
+                                if (netSdkVer != null && !string.IsNullOrWhiteSpace(netSdkVer.ToString()))
+                                {
+                                    data.Append($"netSdkVersion={netSdkVer},AspNetCoreVersion={aspNetCoreVer},NetCoreAppVersion={netCoreAppVer},");
+                                }
+
+                                // Tag set, environment
+                                data.Append($"hw={hw},env={env},os={os},arch={arch},proc={proc}");
+
+                                // Field set, value
+                                data.Append($" value={measurement.Value}");
+
+                                // Timestamp
+                                data.Append($" {GetTimestamp(measurement.Timestamp)}\n");
+                            }
+                        }
+                    }
+                }
+
+                return data.ToString();
+            }
+
+            static string GetTimestamp(DateTime datetime)
+            {
+                var ts = datetime.Subtract(DateTime.UnixEpoch).Ticks * 100;
+                return ts.ToString();
+            }
+        }
+
+        public static async Task InitializeInfluxDbAsync(string influxDbUrl, string influxDbApiToken, string influxDbOrgId, string influxDbBucket)
+        {
+            await RetryOnExceptionAsync(5, () => InitializeInfluxDbInternalAsync(influxDbUrl, influxDbApiToken, influxDbOrgId, influxDbBucket), 5000);
+
+            static async Task InitializeInfluxDbInternalAsync(string influxDbUrl, string influxDbApiToken, string influxDbOrgId, string influxDbBucket)
+            {
+                var reqUrl = $"{influxDbUrl}/api/v2/buckets?orgID={influxDbOrgId}&name={influxDbBucket}";
+                using HttpClient client = new();
+                HttpRequestMessage httpReq = new(HttpMethod.Get, reqUrl);
+                httpReq.Headers.TryAddWithoutValidation("Authorization", $"Token {influxDbApiToken}");
+                var resp = await client.SendAsync(httpReq);
+
+                if (resp.StatusCode == HttpStatusCode.NotFound)
+                {
+                    Log($"Not Found influxdb bucket {influxDbBucket}, should create");
+                    await CreateBucket(influxDbUrl, influxDbApiToken, influxDbOrgId, influxDbBucket);
+                }
+            }
+
+            static async Task CreateBucket(string influxDbUrl, string influxDbApiToken, string influxDbOrgId, string influxDbBucket)
+            {
+                var reqUrl = $"{influxDbUrl}/api/v2/buckets";
+                using HttpClient client = new();
+                var data = new { description = "Crank Benchmark", name = influxDbBucket, orgID = influxDbOrgId };
+                StringContent content = new(JsonConvert.SerializeObject(data));
+                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                HttpRequestMessage httpReq = new(HttpMethod.Post, reqUrl);
+                httpReq.Content = content;
+                httpReq.Headers.TryAddWithoutValidation("Authorization", $"Token {influxDbApiToken}");
+                var resp = await client.SendAsync(httpReq);
+                resp.EnsureSuccessStatusCode();
+            }
         }
     }
 }

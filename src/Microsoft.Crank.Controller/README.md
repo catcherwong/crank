@@ -24,6 +24,10 @@ Options:
   --table                                                        Table or environment variable name of the SQL Database to store results in.
   --es                                                           Url or environment variable name of the Elasticsearch server to store results in.
   --index                                                        Index name or environment variable name of the Elasticsearch server to store results in.
+  --influxdb-url                                                 Url or environment variable name of the InfluxDb server to store results in.
+  --influxdb-apitoken                                            Apitoken or environment variable name of the InfluxDb server to store results in.
+  --influxdb-orgid                                               OrgId or environment variable name of the InfluxDb server to store results in.
+  --influxdb-bucket                                              Bucket or environment variable name of the InfluxDb server to store results in.
   --json <filename>                                              Store the results as json in the specified file.
   --csv <filename>                                               Store or append the results as csv in the specified file.
   --no-metadata                                                  Don't record metadata in the stored document.

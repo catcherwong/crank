@@ -38,6 +38,10 @@ namespace Microsoft.Crank.Controller
         private static string _sqlConnectionString = "";
         private static string _indexName = "benchmarks";
         private static string _elasticSearchUrl = "";
+        private static string _influxDbUrl = "";
+        private static string _influxDbBucket = "";
+        private static string _influxDbOrgId = "";
+        private static string _influxDbApiToken = "";
         private const string DefaultBenchmarkDotNetArguments = "--inProcess --cli \"{{benchmarks-cli}}\" --join --exporters briefjson markdown";
 
         // Default to arguments which should be sufficient for collecting trace of default Plaintext run
@@ -80,7 +84,11 @@ namespace Microsoft.Crank.Controller
             _excludeOption,
             _excludeOrderOption,
             _debugOption,
-            _commandLinePropertyOption
+            _commandLinePropertyOption,
+            _influxDbUrlOption,
+            _influxDbApiTokenOption,
+            _influxDbBucketOption,
+            _influxDbOrgIdOption
             ;
 
         // The dynamic arguments that will alter the configurations
@@ -186,6 +194,10 @@ namespace Microsoft.Crank.Controller
             _excludeOrderOption = app.Option("-xo|--exclude-order", "The result to use to detect the high and low results, e.g., 'load:http/rps/mean'", CommandOptionType.SingleValue);
             _debugOption = app.Option("-d|--debug", "Saves the final configuration to a file and skips the execution of the benchmark, e.g., '-d debug.json'", CommandOptionType.SingleValue);
             _commandLinePropertyOption = app.Option("--command-line-property", "Saves the final crank command line in a custom 'command-line' property, excludinf all unnecessary and security sensitive arguments.", CommandOptionType.NoValue);
+            _influxDbUrlOption = app.Option("--influxdb-url", "InfluxDb server url to store results in.", CommandOptionType.SingleValue);
+            _influxDbApiTokenOption = app.Option("--influxdb-apitoken", "ApiToken of InfluxDb to store results in.", CommandOptionType.SingleValue);
+            _influxDbBucketOption = app.Option("--influxdb-bucket", "Bucket of InfluxDb to store results in.", CommandOptionType.SingleValue);
+            _influxDbOrgIdOption = app.Option("--influxdb-orgid", "OrgId of InfluxDb to store results in.", CommandOptionType.SingleValue);
 
             _ignoredCommands = new HashSet<CommandOption>()
             {
@@ -209,6 +221,10 @@ namespace Microsoft.Crank.Controller
                 _quietOption,
                 _debugOption,
                 _commandLinePropertyOption,
+                _influxDbUrlOption,
+                _influxDbApiTokenOption,
+                _influxDbOrgIdOption,
+                _influxDbBucketOption
             };
 
             app.Command("compare", compareCmd =>
@@ -407,46 +423,8 @@ namespace Microsoft.Crank.Controller
                     Console.WriteLine($"Invalid value for --span. Format is 'HH:mm:ss'");
                     return -1;
                 }
-
-                if (_sqlTableOption.HasValue())
-                {
-                    _tableName = _sqlTableOption.Value();
-
-                    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_tableName)))
-                    {
-                        _tableName = Environment.GetEnvironmentVariable(_tableName);
-                    }
-                }
-
-                if (_sqlConnectionStringOption.HasValue())
-                {
-                    _sqlConnectionString = _sqlConnectionStringOption.Value();
-
-                    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_sqlConnectionString)))
-                    {
-                        _sqlConnectionString = Environment.GetEnvironmentVariable(_sqlConnectionString);
-                    }
-                }
-
-                if (_elasticSearchIndexOption.HasValue())
-                {
-                    _indexName = _elasticSearchIndexOption.Value();
-
-                    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_indexName)))
-                    {
-                        _indexName = Environment.GetEnvironmentVariable(_indexName);
-                    }
-                }
-
-                if (_elastiSearchUrlOption.HasValue())
-                {
-                    _elasticSearchUrl = _elastiSearchUrlOption.Value();
-
-                    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_elasticSearchUrl)))
-                    {
-                        _elasticSearchUrl = Environment.GetEnvironmentVariable(_elasticSearchUrl);
-                    }
-                }
+                
+                SetStoreOptions();
 
                 if (!_configOption.HasValue())
                 {
@@ -596,17 +574,7 @@ namespace Microsoft.Crank.Controller
                     return 0;
                 }
 
-                // Initialize database
-                if (!String.IsNullOrWhiteSpace(_sqlConnectionString))
-                {
-                    await JobSerializer.InitializeDatabaseAsync(_sqlConnectionString, _tableName);
-                }
-
-                // Initialize elasticsearch index
-                if (!String.IsNullOrWhiteSpace(_elasticSearchUrl))
-                {
-                    await JobSerializer.InitializeElasticSearchAsync(_elasticSearchUrl, _indexName);
-                }
+                await InitializeStoreAsync();
 
 #pragma warning disable CS4014
                 // Don't block on version checks
@@ -686,6 +654,110 @@ namespace Microsoft.Crank.Controller
             {
                 Console.WriteLine(e.Message);
                 return -1;
+            }
+        }
+
+        private static async Task InitializeStoreAsync()
+        {
+            // Initialize database
+            if (!String.IsNullOrWhiteSpace(_sqlConnectionString))
+            {
+                await JobSerializer.InitializeDatabaseAsync(_sqlConnectionString, _tableName);
+            }
+
+            // Initialize elasticsearch index
+            if (!String.IsNullOrWhiteSpace(_elasticSearchUrl))
+            {
+                await JobSerializer.InitializeElasticSearchAsync(_elasticSearchUrl, _indexName);
+            }
+
+            // Initialize influxdb
+            if (!String.IsNullOrWhiteSpace(_influxDbUrl))
+            {
+                await JobSerializer.InitializeInfluxDbAsync(_influxDbUrl, _influxDbApiToken, _influxDbOrgId, _influxDbBucket);
+            }
+        }
+
+        private static void SetStoreOptions()
+        {
+            if (_sqlTableOption.HasValue())
+            {
+                _tableName = _sqlTableOption.Value();
+
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_tableName)))
+                {
+                    _tableName = Environment.GetEnvironmentVariable(_tableName);
+                }
+            }
+
+            if (_sqlConnectionStringOption.HasValue())
+            {
+                _sqlConnectionString = _sqlConnectionStringOption.Value();
+
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_sqlConnectionString)))
+                {
+                    _sqlConnectionString = Environment.GetEnvironmentVariable(_sqlConnectionString);
+                }
+            }
+
+            if (_elasticSearchIndexOption.HasValue())
+            {
+                _indexName = _elasticSearchIndexOption.Value();
+
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_indexName)))
+                {
+                    _indexName = Environment.GetEnvironmentVariable(_indexName);
+                }
+            }
+
+            if (_elastiSearchUrlOption.HasValue())
+            {
+                _elasticSearchUrl = _elastiSearchUrlOption.Value();
+
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_elasticSearchUrl)))
+                {
+                    _elasticSearchUrl = Environment.GetEnvironmentVariable(_elasticSearchUrl);
+                }
+            }
+
+            if (_influxDbUrlOption.HasValue())
+            {
+                _influxDbUrl = _influxDbUrlOption.Value();
+
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_influxDbUrl)))
+                {
+                    _influxDbUrl = Environment.GetEnvironmentVariable(_influxDbUrl);
+                }
+            }
+
+            if (_influxDbApiTokenOption.HasValue())
+            {
+                _influxDbApiToken = _influxDbApiTokenOption.Value();
+
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_influxDbApiToken)))
+                {
+                    _influxDbApiToken = Environment.GetEnvironmentVariable(_influxDbApiToken);
+                }
+            }
+
+            if (_influxDbBucketOption.HasValue())
+            {
+                _influxDbBucket = _influxDbBucketOption.Value();
+
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_influxDbBucket)))
+                {
+                    _influxDbBucket = Environment.GetEnvironmentVariable(_influxDbBucket);
+                }
+            }
+
+            if (_influxDbOrgIdOption.HasValue())
+            {
+                _influxDbOrgId = _influxDbOrgIdOption.Value();
+
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_influxDbOrgId)))
+                {
+                    _influxDbOrgId = Environment.GetEnvironmentVariable(_influxDbOrgId);
+                }
             }
         }
 
@@ -1228,21 +1300,22 @@ namespace Microsoft.Crank.Controller
 
                 // Store data
 
-                if (!String.IsNullOrEmpty(_sqlConnectionString))
+                // Skip storing results if running with iterations and not the last run
+                if (i == iterations)
                 {
-                    // Skip storing results if running with iterations and not the last run
-                    if (i == iterations)
+                    if (!String.IsNullOrEmpty(_sqlConnectionString))
                     {
                         await JobSerializer.WriteJobResultsToSqlAsync(executionResult.JobResults, _sqlConnectionString, _tableName, session, _scenarioOption.Value(), _descriptionOption.Value());
                     }
-                }
 
-                if (!String.IsNullOrEmpty(_elasticSearchUrl))
-                {
-                    // Skip storing results if running with iterations and not the last run
-                    if (i == iterations)
+                    if (!String.IsNullOrEmpty(_elasticSearchUrl))
                     {
                         await JobSerializer.WriteJobResultsToEsAsync(executionResult.JobResults, _elasticSearchUrl, _indexName, session, _scenarioOption.Value(), _descriptionOption.Value());
+                    }
+
+                    if (!String.IsNullOrEmpty(_influxDbUrl))
+                    {
+                        await JobSerializer.WriteJobResultsToInfluxDbAsync(executionResult.JobResults, _influxDbUrl, _influxDbApiToken, _influxDbOrgId, _influxDbBucket, session, _scenarioOption.Value(), _descriptionOption.Value());
                     }
                 }
 
