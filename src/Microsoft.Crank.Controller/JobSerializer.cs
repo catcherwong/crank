@@ -11,6 +11,7 @@ using Newtonsoft.Json.Serialization;
 using System.Net.Http;
 using System.Text;
 using System.Net;
+using MySqlConnector;
 
 namespace Microsoft.Crank.Controller.Serializers
 {
@@ -22,7 +23,8 @@ namespace Microsoft.Crank.Controller.Serializers
             string tableName,
             string session,
             string scenario,
-            string description
+            string description,
+            string sqlType = "mssql"
             )
         {
             var utcNow = DateTime.UtcNow;
@@ -37,12 +39,13 @@ namespace Microsoft.Crank.Controller.Serializers
                     session,
                     scenario,
                     description,
-                    document
+                    document,
+                    sqlType
                     )
                 , 5000);
         }
 
-        public static async Task InitializeDatabaseAsync(string connectionString, string tableName)
+        public static async Task InitializeDatabaseAsync(string connectionString, string tableName, string sqlType = "mssql")
         {
             var createCmd =
                 @"
@@ -60,17 +63,47 @@ namespace Microsoft.Crank.Controller.Serializers
                 END
                 ";
 
-            await RetryOnExceptionAsync(5, () => InitializeDatabaseInternalAsync(connectionString, createCmd), 5000);
-
-            static async Task InitializeDatabaseInternalAsync(string connectionString, string createCmd)
+            if (sqlType == "mysql")
             {
-                using (var connection = new SqlConnection(connectionString))
-                {
-                    await connection.OpenAsync();
+                createCmd = @"
+                CREATE TABLE IF NOT EXISTS `"+ tableName+ @"` (
+                  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+                  `datetime_utc` datetime NOT NULL,
+                  `session` varchar(200) NOT NULL,
+                  `scenario` varchar(200) NOT NULL,
+                  `description` varchar(200) NOT NULL,
+                  `document` json NOT NULL,
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB AUTO_INCREMENT DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+                ";
+            }
 
-                    using (var command = new SqlCommand(createCmd, connection))
+            await RetryOnExceptionAsync(5, () => InitializeDatabaseInternalAsync(connectionString, createCmd, sqlType), 5000);
+
+            static async Task InitializeDatabaseInternalAsync(string connectionString, string createCmd, string sqlType = "mssql")
+            {
+                if (sqlType == "mysql")
+                {
+                    using (var connection = new MySqlConnection(connectionString))
                     {
-                        await command.ExecuteNonQueryAsync();
+                        await connection.OpenAsync();
+
+                        using (var command = new MySqlCommand(createCmd, connection))
+                        {
+                            await command.ExecuteNonQueryAsync();
+                        }
+                    }
+                }
+                else
+                {
+                    using (var connection = new SqlConnection(connectionString))
+                    {
+                        await connection.OpenAsync();
+
+                        using (var command = new SqlCommand(createCmd, connection))
+                        {
+                            await command.ExecuteNonQueryAsync();
+                        }
                     }
                 }
             }
@@ -83,12 +116,15 @@ namespace Microsoft.Crank.Controller.Serializers
             string session,
             string scenario,
             string description,
-            string document
+            string document,
+            string sqlType
             )
         {
 
-            var insertCmd =
-                @"
+            if (sqlType == "mssql")
+            {
+                var insertCmd =
+                    @"
                 INSERT INTO [dbo].[" + tableName + @"]
                            ([DateTimeUtc]
                            ,[Session]
@@ -103,33 +139,82 @@ namespace Microsoft.Crank.Controller.Serializers
                            ,@Document)
                 ";
 
-            using (var connection = new SqlConnection(connectionString))
+                using (var connection = new SqlConnection(connectionString))
+                {
+                    await connection.OpenAsync();
+                    var transaction = connection.BeginTransaction();
+
+                    try
+                    {
+                        var command = new SqlCommand(insertCmd, connection, transaction);
+                        var p = command.Parameters;
+                        p.AddWithValue("@DateTimeUtc", utcNow);
+                        p.AddWithValue("@Session", session);
+                        p.AddWithValue("@Scenario", scenario ?? "");
+                        p.AddWithValue("@Description", description ?? "");
+                        p.AddWithValue("@Document", document);
+
+                        await command.ExecuteNonQueryAsync();
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                    finally
+                    {
+                        transaction.Dispose();
+                    }
+                }
+            }
+            else
             {
-                await connection.OpenAsync();
-                var transaction = connection.BeginTransaction();
+                var insertCmd =
+                @"
+                INSERT INTO `" + tableName + @"`
+                           (`datetime_utc`
+                           ,`session`
+                           ,`scenario`
+                           ,`description`
+                           ,`document`)
+                     VALUES
+                           (@DateTimeUtc
+                           ,@Session
+                           ,@Scenario
+                           ,@Description
+                           ,@Document)
+                ";
 
-                try
+                using (var connection = new MySqlConnection(connectionString))
                 {
-                    var command = new SqlCommand(insertCmd, connection, transaction);
-                    var p = command.Parameters;
-                    p.AddWithValue("@DateTimeUtc", utcNow);
-                    p.AddWithValue("@Session", session);
-                    p.AddWithValue("@Scenario", scenario ?? "");
-                    p.AddWithValue("@Description", description ?? "");
-                    p.AddWithValue("@Document", document);
+                    await connection.OpenAsync();
+                    var transaction = connection.BeginTransaction();
 
-                    await command.ExecuteNonQueryAsync();
+                    try
+                    {
+                        var command = new MySqlCommand(insertCmd, connection, transaction);
+                        var p = command.Parameters;
+                        p.AddWithValue("@DateTimeUtc", utcNow);
+                        p.AddWithValue("@Session", session);
+                        p.AddWithValue("@Scenario", scenario ?? "");
+                        p.AddWithValue("@Description", description ?? "");
+                        p.AddWithValue("@Document", document);
 
-                    transaction.Commit();
-                }
-                catch
-                {
-                    transaction.Rollback();
-                    throw;
-                }
-                finally
-                {
-                    transaction.Dispose();
+                        await command.ExecuteNonQueryAsync();
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                    finally
+                    {
+                        transaction.Dispose();
+                    }
                 }
             }
         }

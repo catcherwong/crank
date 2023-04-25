@@ -34,6 +34,7 @@ namespace Microsoft.Crank.Controller
         private static readonly HttpClientHandler _httpClientHandler;
         private static readonly FluidParser FluidParser = new FluidParser();
 
+        private static string _sqlType = "mssql";
         private static string _tableName = "Benchmarks";
         private static string _sqlConnectionString = "";
         private static string _indexName = "benchmarks";
@@ -58,6 +59,7 @@ namespace Microsoft.Crank.Controller
             _variableOption,
             _sqlConnectionStringOption,
             _sqlTableOption,
+            _sqlTypeOption,
             _elastiSearchUrlOption,
             _elasticSearchIndexOption,
             _relayConnectionStringOption,
@@ -162,6 +164,8 @@ namespace Microsoft.Crank.Controller
                 "Connection string or environment variable name of the SQL Server Database to store results in.", CommandOptionType.SingleValue);
             _sqlTableOption = app.Option("--table",
                 "Table name or environment variable name of the SQL table to store results in.", CommandOptionType.SingleValue);
+            _sqlTypeOption = app.Option("--sql-type",
+                "Type name or environment variable name of the SQL type to store results in.", CommandOptionType.SingleValue);
             _elastiSearchUrlOption = app.Option("--es",
             "Elasticsearch server url to store results in.", CommandOptionType.SingleValue);
             _elasticSearchIndexOption = app.Option("--index",
@@ -418,6 +422,16 @@ namespace Microsoft.Crank.Controller
                     }
                 }
 
+                if (_sqlTypeOption.HasValue())
+                {
+                    _sqlType = _sqlTypeOption.Value();
+
+                    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable(_sqlType)))
+                    {
+                        _sqlType = Environment.GetEnvironmentVariable(_sqlType);
+                    }
+                }
+
                 if (_sqlConnectionStringOption.HasValue())
                 {
                     _sqlConnectionString = _sqlConnectionStringOption.Value();
@@ -599,7 +613,7 @@ namespace Microsoft.Crank.Controller
                 // Initialize database
                 if (!String.IsNullOrWhiteSpace(_sqlConnectionString))
                 {
-                    await JobSerializer.InitializeDatabaseAsync(_sqlConnectionString, _tableName);
+                    await JobSerializer.InitializeDatabaseAsync(_sqlConnectionString, _tableName, _sqlType);
                 }
 
                 // Initialize elasticsearch index
@@ -1243,7 +1257,7 @@ namespace Microsoft.Crank.Controller
                     // Skip storing results if running with iterations and not the last run
                     if (i == iterations)
                     {
-                        await JobSerializer.WriteJobResultsToSqlAsync(executionResult.JobResults, _sqlConnectionString, _tableName, session, _scenarioOption.Value(), _descriptionOption.Value());
+                        await JobSerializer.WriteJobResultsToSqlAsync(executionResult.JobResults, _sqlConnectionString, _tableName, session, _scenarioOption.Value(), _descriptionOption.Value(), _sqlType);
                     }
                 }
 
@@ -1451,7 +1465,7 @@ namespace Microsoft.Crank.Controller
                     var executionResult = new ExecutionResult();
                     executionResult.JobResults = jobResults;
 
-                    await JobSerializer.WriteJobResultsToSqlAsync(executionResult.JobResults, _sqlConnectionString, _tableName, session, _scenarioOption.Value(), String.Join(" ", _descriptionOption.Value(), fullName));
+                    await JobSerializer.WriteJobResultsToSqlAsync(executionResult.JobResults, _sqlConnectionString, _tableName, session, _scenarioOption.Value(), String.Join(" ", _descriptionOption.Value(), fullName), _sqlType);
                 }
                 if (!String.IsNullOrEmpty(_elasticSearchUrl))
                 {
@@ -1597,7 +1611,7 @@ namespace Microsoft.Crank.Controller
 
                     if (!String.IsNullOrEmpty(_sqlConnectionString))
                     {
-                        await JobSerializer.WriteJobResultsToSqlAsync(jobResults, _sqlConnectionString, _tableName, session, _scenarioOption.Value(), _descriptionOption.Value());
+                        await JobSerializer.WriteJobResultsToSqlAsync(jobResults, _sqlConnectionString, _tableName, session, _scenarioOption.Value(), _descriptionOption.Value(), _sqlType);
                     }
 
                     if (!String.IsNullOrEmpty(_elasticSearchUrl))
