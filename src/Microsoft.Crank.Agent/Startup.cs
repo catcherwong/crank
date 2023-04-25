@@ -1708,7 +1708,7 @@ namespace Microsoft.Crank.Agent
                                         job.ExitCode = process.ExitCode;
                                     }
 
-                                    Log.Info($"Process has stopped");
+                                    Log.Info($"Process has stopped ({job.Service}:{job.Id})");
 
 
                                     job.State = JobState.Stopped;
@@ -1719,6 +1719,9 @@ namespace Microsoft.Crank.Agent
                                 {
                                     await DockerCleanUpAsync(dockerContainerId, dockerImage, job);
                                 }
+
+                                // job state should be stopped here
+                                job.State = JobState.Stopped;
 
                                 // Run scripts after the benchmark is stopped
                                 if (!String.IsNullOrEmpty(job.AfterScript))
@@ -1736,7 +1739,7 @@ namespace Microsoft.Crank.Agent
                                     // if there is an AfterScript
                                 }
 
-                                Log.Info($"Process stopped ({job.State})");
+                                Log.Info($"Process stopped ({job.State} {job.Service}:{job.Id})");
                             }
 
                             async Task DeleteJobAsync()
