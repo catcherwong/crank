@@ -74,7 +74,7 @@ namespace Microsoft.Crank.Controller.Serializers
                   `description` varchar(200) NOT NULL,
                   `document` json NOT NULL,
                   PRIMARY KEY (`id`)
-                ) ENGINE=InnoDB AUTO_INCREMENT DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+                ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
                 ";
             }
 
