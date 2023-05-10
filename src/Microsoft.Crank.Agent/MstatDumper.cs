@@ -14,7 +14,7 @@ namespace Microsoft.Crank.Agent
     {
         internal static DumperResults GetInfo(string path)
         {
-            var mstats = Directory.EnumerateFiles(path, "*.mstat");
+            var mstats = Directory.EnumerateFiles(path, "*.mstat", SearchOption.AllDirectories);
 
             if (mstats == null || !mstats.Any())
             {
